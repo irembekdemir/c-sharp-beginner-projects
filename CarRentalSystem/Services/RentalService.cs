@@ -1,4 +1,5 @@
 using CarRentalSystem.Models;
+using System.Text.Json;
 
 namespace CarRentalSystem.Services
 {
@@ -9,24 +10,21 @@ namespace CarRentalSystem.Services
 
         public RentalService()
         {
-            // Sample cars
-            cars.Add(new Car { Plate = "06ABC123", BrandModel = "Toyota Corolla", DailyPrice = 1500 });
-            cars.Add(new Car { Plate = "34XYZ789", BrandModel = "Honda Civic", DailyPrice = 1700 });
+            cars.Add(new Car { Plate = "06ABC123", BrandModel = "Toyota Corolla", Type = "Sedan", DailyPrice = 1500 });
+            cars.Add(new Car { Plate = "34XYZ789", BrandModel = "Honda Civic", Type = "Sedan", DailyPrice = 1700 });
         }
 
         public List<string> GetAvailableCars(DateTime start, DateTime end)
         {
-            List<string> available = new List<string>();
+            List<string> result = new List<string>();
 
             foreach (var car in cars)
             {
                 if (IsCarAvailable(car.Plate, start, end))
-                {
-                    available.Add(car.Plate + " - " + car.BrandModel);
-                }
+                    result.Add($"{car.Plate} - {car.BrandModel}");
             }
 
-            return available;
+            return result;
         }
 
         public bool IsCarAvailable(string plate, DateTime start, DateTime end)
@@ -35,40 +33,42 @@ namespace CarRentalSystem.Services
             {
                 if (r.Plate == plate)
                 {
-                    bool overlap =
-                        start <= r.EndDate &&
-                        end >= r.StartDate;
-
-                    if (overlap)
+                    if (start <= r.EndDate && end >= r.StartDate)
                         return false;
                 }
             }
-
             return true;
         }
 
         public double GetDailyPrice(string plate)
         {
-            foreach (var car in cars)
-            {
-                if (car.Plate == plate)
-                    return car.DailyPrice;
-            }
+            foreach (var c in cars)
+                if (c.Plate == plate)
+                    return c.DailyPrice;
 
             return 0;
         }
 
+        public List<string> GetCarsByType(string type)
+        {
+            List<string> list = new List<string>();
+
+            foreach (var c in cars)
+                if (c.Type.ToLower() == type.ToLower())
+                    list.Add($"{c.Plate} - {c.BrandModel}");
+
+            return list;
+        }
+
         public void AddReservation(string customer, string plate, DateTime start, DateTime end)
         {
-            string conflict = GetConflictReason(plate, start, end);
-
-            if (conflict != "No conflict")
+            if (!IsCarAvailable(plate, start, end))
             {
-                Console.WriteLine("ERROR: " + conflict);
+                Console.WriteLine("Car is NOT available!");
                 return;
             }
 
-            double price = CalculateReservationPrice(plate, start, end);
+            double price = CalculatePrice(plate, start, end);
 
             reservations.Add(new Reservation
             {
@@ -79,15 +79,13 @@ namespace CarRentalSystem.Services
                 TotalPrice = price
             });
 
-            Console.WriteLine("Reservation created successfully. Price: " + price);
+            Console.WriteLine("Reservation created. Price: " + price);
         }
 
-        public double CalculateReservationPrice(string plate, DateTime start, DateTime end)
+        public double CalculatePrice(string plate, DateTime start, DateTime end)
         {
-            double dailyPrice = GetDailyPrice(plate);
             int days = (end - start).Days;
-
-            return days * dailyPrice;
+            return days * GetDailyPrice(plate);
         }
 
         public void CancelReservation(string plate)
@@ -101,26 +99,22 @@ namespace CarRentalSystem.Services
             double total = 0;
 
             foreach (var r in reservations)
-            {
                 total += r.TotalPrice;
-            }
 
             return total;
         }
 
         public List<string> GetCustomerReservations(string customer)
         {
-            List<string> result = new List<string>();
+            List<string> list = new List<string>();
 
             foreach (var r in reservations)
             {
                 if (r.CustomerName == customer)
-                {
-                    result.Add($"{r.Plate} ({r.StartDate.ToShortDateString()} - {r.EndDate.ToShortDateString()})");
-                }
+                    list.Add($"{r.Plate} ({r.StartDate.ToShortDateString()} - {r.EndDate.ToShortDateString()})");
             }
 
-            return result;
+            return list;
         }
 
         public string MostRentedCar()
@@ -149,25 +143,32 @@ namespace CarRentalSystem.Services
 
             return best;
         }
-    }
 
-    public string GetConflictReason(string plate, DateTime start, DateTime end)
-    {
-        foreach (var r in reservations)
+        public void SaveData()
         {
-            if (r.Plate == plate)
+            var data = new StorageModel
             {
-                bool overlap =
-                    start <= r.EndDate &&
-                    end >= r.StartDate;
+                Cars = cars,
+                Reservations = reservations
+            };
 
-                if (overlap)
-                {
-                    return $"Conflict with reservation: {r.StartDate} - {r.EndDate} by {r.CustomerName}";
-                }
-            }
+            File.WriteAllText("data.json",
+                JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
         }
 
-        return "No conflict";
+        public void LoadData()
+        {
+            if (!File.Exists("data.json"))
+                return;
+
+            var data = JsonSerializer.Deserialize<StorageModel>(
+                File.ReadAllText("data.json"));
+
+            if (data != null)
+            {
+                cars = data.Cars ?? new List<Car>();
+                reservations = data.Reservations ?? new List<Reservation>();
+            }
+        }
     }
 }
